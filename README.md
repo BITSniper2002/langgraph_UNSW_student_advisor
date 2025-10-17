@@ -5,6 +5,7 @@
 UNSW Student Advisor is an intelligent course advisory system based on deep agent architecture, specifically designed to provide personalized academic planning and course selection advice for UNSW (University of New South Wales) students. The system integrates advanced AI technologies with multi-agent collaboration, task management, and file systems to deliver comprehensive, professional academic consulting services.
 
 ## 🏗️ Chatbot Design Philosophy and Overall Architecture
+![System Architecture](./assets/unsw_deepagents_workflow.png)
 
 ### Design Philosophy
 - **Specialization-Oriented**: Focused exclusively on UNSW courses and programs, providing precise academic advice
