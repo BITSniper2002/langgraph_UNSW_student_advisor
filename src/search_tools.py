@@ -8,7 +8,7 @@ from src.tavilys import *
 load_dotenv()
 
 def generate_file_content(result, query):
-    """生成单个搜索结果的文件内容"""
+    """Generate file content for a single search result."""
     return f"""# Search Result: {result['title']}
 
 **URL:** {result['url']}
@@ -23,7 +23,7 @@ def generate_file_content(result, query):
 """
 
 def generate_search_summary(processed_results, query):
-    """生成搜索结果的摘要文本"""
+    """Generate summary text for search results."""
     summaries = []
     saved_files = []
     
@@ -46,7 +46,7 @@ def search_unsw_programs(query: str,
  state: Annotated[DeepAgentState, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
     max_results: Annotated[int, InjectedToolArg] = 1) -> Command:
-    """搜索UNSW课程和项目信息"""
+    """Search UNSW programs and course information."""
     search_results = run_tavily_search(
         query,
         max_results=max_results,
@@ -88,7 +88,7 @@ def search_course_details(query: str, course_code: str,
  state: Annotated[DeepAgentState, InjectedState],
     tool_call_id: Annotated[str, InjectedToolCallId],
     max_results: Annotated[int, InjectedToolArg] = 1) -> Command:
-    """搜索特定课程详细信息"""
+    """Search a specific course's detailed information."""
     search_results = run_tavily_search(
         query,
         max_results=max_results,
@@ -131,7 +131,7 @@ def search_career_opportunities(query: str,
     tool_call_id: Annotated[str, InjectedToolCallId],
     max_results: Annotated[int, InjectedToolArg] = 1,
     field: Annotated[str, InjectedToolArg] = "career") -> Command:
-    """搜索职业机会信息"""
+    """Search career opportunities information."""
     search_results = run_tavily_search(
         f"{query} {field} career opportunities jobs Australia",
         max_results=max_results,
@@ -172,7 +172,7 @@ def search_international_student_info(query: str,
     tool_call_id: Annotated[str, InjectedToolCallId],
     max_results: Annotated[int, InjectedToolArg] = 1,
     ) -> Command:
-    """搜索国际学生相关信息"""
+    """Search international student related information."""
     search_results = run_tavily_search(
         f"{query} international students visa requirements support",
         max_results=max_results,

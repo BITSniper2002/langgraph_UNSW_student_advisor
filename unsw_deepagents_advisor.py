@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-UNSW课程选择顾问 - 基于官方deep-agents的深度智能体实现
-使用官方deep-agents库，支持子智能体、TODO管理、文件系统等功能
+UNSW Course Advisor - Deep-agents based implementation
+Supports sub-agents, TODO management, and a virtual file system.
 """
 
 from operator import imod
@@ -25,6 +25,13 @@ from src.search_tools import search_career_opportunities,search_course_details,s
 from src.prompts import international_advisor_subagent_prompt,course_planner_subagent_prompt,career_advisor_subagent_prompt,INSTRUCTIONS
 from src.state import DeepAgentState
 from src.tavilys import tavily_search,think_tool
+from src.research_tools import (
+    parallel_tavily_search,
+    parallel_course_details,
+    parallel_unsw_programs,
+    parallel_career_opportunities,
+    parallel_international_info,
+)
 from src.task_tool import _create_task_tool
 from src.todo_tools import write_todos, read_todos, classify_task_complexity
 from src.file_tools import ls, read_file, write_file
@@ -37,14 +44,14 @@ load_dotenv()
 # ==================== 初始化 ====================
 
 def create_llm():
-    """创建通义千问LLM"""
+    """Create Qwen LLM"""
     from langchain_qwq import ChatQwen
     import langchain
     
-    # 设置环境变量
+    # Set environment variables
     os.environ["DASHSCOPE_API_KEY"] = os.environ["DASHSCOPE_API_KEY"]
     
-    # 修复 langchain.verbose 和 langchain.debug 属性错误
+    # Patch langchain verbose/debug attributes if missing
     if not hasattr(langchain, 'verbose'):
         langchain.verbose = False
     if not hasattr(langchain, 'debug'):
@@ -58,45 +65,45 @@ def create_llm():
     )
 
 
-# ========== 子智能体定义 ====================
+# ========== Sub-agent definitions ====================
 
 def get_today_str() -> str:
-    """获取当前日期的可读格式"""
+    """Get current date in a readable format"""
     return datetime.now().strftime("%a %b %-d, %Y")
 
-# 课程规划子智能体
+# Course planner sub-agent
 course_planner_subagent = {
     "name": "course-planner",
-    "description": "委托课程规划任务给课程规划专家。专注于课程选择、先修条件、学习路径规划。",
+    "description": "Delegate course planning tasks to the course planner. Focus on course selection, prerequisites, and study pathways.",
     "prompt": course_planner_subagent_prompt,
     "tools": ["search_course_details", "search_unsw_programs", "think_tool"],
 }
 
-# 职业顾问子智能体
+# Career advisor sub-agent
 career_advisor_subagent = {
     "name": "career-advisor", 
-    "description": "委托职业咨询任务给职业发展顾问。专注于职业前景、就业机会、技能要求分析。",
+    "description": "Delegate career consulting tasks to the career advisor. Focus on career outlook, job opportunities, and skill requirements.",
     "prompt": career_advisor_subagent_prompt,
     "tools": ["search_career_opportunities", "think_tool"],
 }
 
-# 国际学生顾问子智能体
+# International advisor sub-agent
 international_advisor_subagent = {
     "name": "international-advisor",
-    "description": "委托国际学生咨询任务给国际学生顾问。专注于签证要求、支持服务、文化适应。",
+    "description": "Delegate international-student tasks to the international advisor. Focus on visa requirements, support services, and cultural adaptation.",
     "prompt": international_advisor_subagent_prompt,
     "tools": ["search_international_student_info", "think_tool"],
 }
 
-# ==================== 创建深度智能体 ====================
+# ==================== 创建智能体 ====================
 
 def create_unsw_deep_agent():
-    """创建基于deep-agents的UNSW课程顾问"""
+    """Create the deep-agents based UNSW course advisor"""
     
-    # 初始化LLM
+    # Initialize LLM
     llm = create_llm()
     
-    # 定义子智能体
+    # Define sub-agents
     subagents = [
         course_planner_subagent,
         career_advisor_subagent,
@@ -104,18 +111,23 @@ def create_unsw_deep_agent():
     ]
     
     sub_agent_tools = [search_unsw_programs, search_course_details, search_career_opportunities, search_international_student_info, think_tool]
-    # 创建任务工具
+    # Create task tool
     task_tool = _create_task_tool(
         sub_agent_tools, subagents, llm, DeepAgentState
     )
     
-    # 定义基础工具（使用增强版工具）
+    # Define base tools
     basic_tools = [
         search_unsw_programs,
         search_course_details, 
         search_career_opportunities,
         search_international_student_info,
         think_tool,
+        parallel_tavily_search,
+        parallel_course_details,
+        parallel_unsw_programs,
+        parallel_career_opportunities,
+        parallel_international_info,
         classify_task_complexity,
         write_todos,
         read_todos,
@@ -125,82 +137,80 @@ def create_unsw_deep_agent():
         task_tool
     ]
     
-    # 创建简单的React智能体
+    # Create simple ReAct agent
     agent = create_react_agent(
         llm, basic_tools+[task_tool], prompt=INSTRUCTIONS, state_schema=DeepAgentState
     )
     
     return agent
 
-# ==================== 主程序 ====================
+# ==================== Main ====================
 
 def main():
-    """主程序"""
+    """Main entrypoint"""
     print("🎓 UNSW Deep-Agents Course Advisor")
     print("=" * 80)
-    print("基于官方deep-agents的深度智能课程顾问")
-    print("功能: 子智能体 | TODO管理 | 文件系统 | 工具集成")
+    print("Deep-agents based course advisor")
+    print("Features: Sub-agents | TODO management | File system | Tool integration")
     print("=" * 80)
     
-    # 检查API密钥
+    # Check API keys
     if not os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") == "your_dashscope_api_key_here":
-        print("⚠️  请在 .env 文件中设置您的 DASHSCOPE_API_KEY")
+        print("⚠️  Please set your DASHSCOPE_API_KEY in the .env file")
         return
     
     if not os.environ.get("TAVILY_API_KEY") or os.environ.get("TAVILY_API_KEY") == "your_tavily_api_key_here":
-        print("⚠️  请在 .env 文件中设置您的 TAVILY_API_KEY")
+        print("⚠️  Please set your TAVILY_API_KEY in the .env file")
         return
     
     try:
-        # 创建深度智能体
+        # Create advisor
         advisor = create_unsw_deep_agent()
-        print("✅ Deep-Agents课程顾问初始化成功！")
+        print("✅ Deep-Agents Student Advisor initialized successfully!")
         
-        # 显示工作流图
+        # Workflow graph (optional)
         # try:
-        #     print("📊 正在生成工作流图...")
+        #     print("📊 Generating workflow diagram...")
             
-        #     # 生成Mermaid格式的流程图
+        #     # Generate Mermaid diagram
         #     mermaid_diagram = advisor.get_graph().draw_mermaid()
         #     with open("unsw_deepagents_workflow.mmd", "w", encoding="utf-8") as f:
         #         f.write(mermaid_diagram)
-        #     print("✅ Mermaid工作流图已保存为: unsw_deepagents_workflow.mmd")
+        #     print("✅ Mermaid diagram saved: unsw_deepagents_workflow.mmd")
             
-        #     # 生成PNG格式的流程图
+        #     # Generate PNG workflow diagram
         #     try:
         #         workflow_image = advisor.get_graph().draw_mermaid_png()
         #         with open("unsw_deepagents_workflow.png", "wb") as f:
         #             f.write(workflow_image)
-        #         print("✅ PNG工作流图已保存为: unsw_deepagents_workflow.png")
+        #         print("✅ PNG workflow saved: unsw_deepagents_workflow.png")
 
                     
         #     except Exception as png_error:
-        #         print(f"⚠️ PNG生成失败: {png_error}")
-        #         print("💡 可以使用 https://mermaid.live/ 将 .mmd 文件转换为PNG")
+        #         print(f"⚠️ PNG generation failed: {png_error}")
+        #         print("💡 Use https://mermaid.live/ to convert .mmd → PNG")
                 
         # except Exception as e:
-        #     print(f"⚠️ 保存工作流图失败: {e}")
+        #     print(f"⚠️ Saving workflow diagram failed: {e}")
         
-        # 交互循环
+        # REPL loop
         while True:
-            user_input = input("\n🔍 您的问题 (输入 'quit','exit', '退出' 退出程序): ").strip()
+            user_input = input("\n🔍 Your question (enter 'quit','exit', 'quit' to exit the program): ").strip()
             
-            if user_input.lower() in ['quit', 'exit', '退出']:
-                print("👋 再见！")
+            if user_input.lower() in ['quit', 'exit', 'quit']:
+                print("👋 Goodbye!")
                 break
-            
-
             
             if not user_input:
                 continue
             
             try:
-                print("\n🧠 Deep-Agents分析中...")
+                print("\n🧠 Deep-Agents analyzing...")
                 
-                # 查询预处理提示（使用 classify_task_complexity 工具由代理自行判定）
-                print("🎯 将调用复杂度判断工具以确定TODO复杂度和工具预算…")
+                # Pre-processing hint (agent decides complexity & budget)
+                print("🎯 Calling complexity assessment tool to determine TODO complexity and tool budget...")
                 
-                # 调用深度智能体
+                # Invoke advisor
                 result = advisor.invoke(
                     {"messages": [HumanMessage(content=user_input)]},
                     config={"recursion_limit": 100}
@@ -208,10 +218,10 @@ def main():
                 format_messages(result["messages"])
                     
             except Exception as e:
-                print(f"❌ 错误: {e}")
+                print(f"❌ Error: {e}")
                 
     except Exception as e:
-        print(f"❌ 初始化错误: {e}")
+        print(f"❌ Initialization error: {e}")
 
 if __name__ == "__main__":
     main()

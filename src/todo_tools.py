@@ -15,6 +15,10 @@ from langgraph.types import Command
 from src.prompts import WRITE_TODOS_DESCRIPTION
 from src.state import DeepAgentState, Todo
 
+# Qwen model for classification
+from langchain_qwq import ChatQwen
+from langchain_core.messages import HumanMessage
+
 
 @tool(description=WRITE_TODOS_DESCRIPTION,parse_docstring=True)
 def write_todos(
@@ -67,3 +71,52 @@ def read_todos(
         result += f"{i}. {emoji} {todo['content']} ({todo['status']})\n"
 
     return result.strip()
+
+
+@tool(parse_docstring=True)
+def classify_task_complexity(user_request: str) -> dict:
+    """Classify the user request for TODO complexity and type.
+
+    Args:
+        user_request: The raw user query to analyze.
+
+    Returns:
+        dict: A JSON-compatible dict with exactly two keys:
+            - task_type: Task type (e.g., Course Planning / Program Info / Career Advice / International Support / Comparison / General Inquiry)
+            - difficulty: Difficulty level (Simple / Moderate / Difficult)
+
+    Example:
+        {
+          "task_type": "Comparison",
+          "difficulty": "Moderate"
+        }
+    """
+    model = ChatQwen(model="qwen-flash", temperature=0.0)
+
+    system_hint = (
+        "You are a task classifier. Output valid JSON only, with no explanations. "
+        "Fields: task_type (type), difficulty (Simple/Moderate/Difficult). "
+        "Decide the most fitting task_type and difficulty from the user request."
+    )
+
+    format_constraint = (
+        "Strictly output JSON with this shape, no extra text:\n"
+        "{\n  \"task_type\": \"<type>\",\n  \"difficulty\": \"<Simple/Moderate/Difficult>\"\n}"
+    )
+
+    prompt = f"{system_hint}\n\nUser request:\n{user_request}\n\n{format_constraint}"
+
+    resp = model.invoke([HumanMessage(content=prompt)])
+    content = resp.content if isinstance(resp.content, str) else str(resp.content)
+
+    # Best-effort parse; if parsing fails, return conservative default
+    import json
+    try:
+        data = json.loads(content)
+        # minimal validation
+        if "task_type" in data and "difficulty" in data:
+            return data
+    except Exception:
+        pass
+
+    return {"task_type": "General Inquiry", "difficulty": "Moderate"}

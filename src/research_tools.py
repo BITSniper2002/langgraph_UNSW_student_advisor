@@ -21,7 +21,15 @@ from typing_extensions import Annotated, Literal
 from src.prompts import SUMMARIZE_WEB_SEARCH
 from src.state import DeepAgentState
 from langchain_qwq import ChatQwen
+import asyncio
+import langchain
 
+if not hasattr(langchain, 'verbose'):
+    langchain.verbose = False
+if not hasattr(langchain, 'debug'):
+    langchain.debug = False
+if not hasattr(langchain, 'llm_cache'):
+    langchain.llm_cache = False
 # Summarization model 
 summarization_model = ChatQwen(
         model="qwen-flash", 
@@ -221,6 +229,346 @@ Files: {', '.join(saved_files)}
         }
     )
 
+
+@tool(parse_docstring=True)
+def parallel_tavily_search(
+    queries: list[str],
+    state: Annotated[DeepAgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    max_results: Annotated[int, InjectedToolArg] = 1,
+    include_raw_content: Annotated[bool, InjectedToolArg] = True,
+) -> Command:
+    """Run multiple Tavily searches in parallel and save consolidated results.
+
+    Args:
+        queries: A list of independent search queries to execute concurrently
+        state: Injected agent state for file storage
+        tool_call_id: Injected tool call identifier
+        max_results: Maximum results per query (default 1)
+        include_raw_content: Whether to fetch raw content (default True)
+
+    Returns:
+        Command updating files with per-query findings and a compact summary message
+    """
+
+    async def _run_one(q: str):
+        # Wrap sync run_tavily_search in a thread to avoid blocking
+        return await asyncio.to_thread(
+            run_tavily_search,
+            q,
+            max_results,
+            include_raw_content,
+        )
+
+    async def _run_all(qs: list[str]):
+        tasks = [asyncio.create_task(_run_one(q)) for q in qs]
+        return await asyncio.gather(*tasks, return_exceptions=False)
+
+    # Execute all queries concurrently
+    results_per_query = asyncio.run(_run_all(queries)) if queries else []
+
+    files = state.get("files", {})
+    saved_files_all: list[str] = []
+    summaries_all: list[str] = []
+
+    # Process each query's results independently
+    for q, raw_results in zip(queries, results_per_query):
+        processed = process_search_results(raw_results)
+        for item in processed:
+            filename = item['filename']
+            file_content = f"""# Search Result: {item['title']}
+
+**URL:** {item['url']}
+**Query:** {q}
+**Date:** {get_today_str()}
+
+## Summary
+{item['summary']}
+
+## Raw Content
+{item['raw_content'] if item['raw_content'] else 'No raw content available'}
+"""
+            files[filename] = file_content
+            saved_files_all.append(filename)
+            summaries_all.append(f"- [{q}] {filename}: {item['summary']}...")
+
+    summary_text = f"""⚡ Parallel search completed for {len(queries)} queries.
+
+{chr(10).join(summaries_all)}
+
+Files: {', '.join(saved_files_all)}
+💡 Use read_file() to inspect details when needed."""
+
+    return Command(
+        update={
+            "files": files,
+            "messages": [
+                ToolMessage(summary_text, tool_call_id=tool_call_id)
+            ],
+        }
+    )
+
+
+@tool(parse_docstring=True)
+def parallel_unsw_programs(
+    queries: list[str],
+    state: Annotated[DeepAgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    max_results: Annotated[int, InjectedToolArg] = 1,
+) -> Command:
+    """Search multiple UNSW program/course queries in parallel.
+
+    Args:
+        queries: List of independent program-related queries (e.g., ["Master of IT UNSW", "COMP9020 UNSW"]).
+        state: Injected agent state for file storage.
+        tool_call_id: Injected tool call identifier.
+        max_results: Max results per query (default 1).
+    """
+
+    async def _run_one(q: str):
+        return q, await asyncio.to_thread(run_tavily_search, q, max_results, True)
+
+    async def _run_all(qs: list[str]):
+        tasks = [asyncio.create_task(_run_one(q)) for q in qs]
+        return await asyncio.gather(*tasks, return_exceptions=False)
+
+    results = asyncio.run(_run_all(queries)) if queries else []
+
+    files = state.get("files", {})
+    saved_files: list[str] = []
+    summaries: list[str] = []
+
+    for q, raw in results:
+        processed = process_search_results(raw)
+        for item in processed:
+            filename = item['filename']
+            content = f"""# Search Result: {item['title']}
+
+**Query:** {q}
+**Date:** {get_today_str()}
+
+## Summary
+{item['summary']}
+
+## Raw Content
+{item['raw_content'] if item['raw_content'] else 'No raw content available'}
+"""
+            files[filename] = content
+            saved_files.append(filename)
+            summaries.append(f"- [{q}] {filename}: {item['summary']}...")
+
+    summary_text = f"""⚡ Parallel UNSW program searches completed for {len(queries)} queries.
+
+{chr(10).join(summaries)}
+
+Files: {', '.join(saved_files)}
+💡 Use read_file() to inspect details when needed."""
+
+    return Command(update={"files": files, "messages": [ToolMessage(summary_text, tool_call_id=tool_call_id)]})
+
+
+@tool(parse_docstring=True)
+def parallel_career_opportunities(
+    topics: list[str],
+    state: Annotated[DeepAgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    max_results: Annotated[int, InjectedToolArg] = 1,
+) -> Command:
+    """Search multiple career opportunity topics in parallel (Australia/UNSW context).
+
+    Args:
+        topics: List of topics/roles/fields (e.g., ["data engineer", "ml engineer"]).
+        state: Injected agent state for file storage.
+        tool_call_id: Injected tool call identifier.
+        max_results: Max results per topic (default 1).
+    """
+
+    def build_query(t: str) -> str:
+        return f"{t} career opportunities jobs Australia UNSW"
+
+    async def _run_one(t: str):
+        q = build_query(t)
+        return t, await asyncio.to_thread(run_tavily_search, q, max_results, True)
+
+    async def _run_all(ts: list[str]):
+        tasks = [asyncio.create_task(_run_one(t)) for t in ts]
+        return await asyncio.gather(*tasks, return_exceptions=False)
+
+    results = asyncio.run(_run_all(topics)) if topics else []
+
+    files = state.get("files", {})
+    saved_files: list[str] = []
+    summaries: list[str] = []
+
+    for topic, raw in results:
+        processed = process_search_results(raw)
+        for item in processed:
+            filename = item['filename']
+            content = f"""# Career Search Result: {item['title']}
+
+**Topic:** {topic}
+**Query:** {build_query(topic)}
+**Date:** {get_today_str()}
+
+## Summary
+{item['summary']}
+
+## Raw Content
+{item['raw_content'] if item['raw_content'] else 'No raw content available'}
+"""
+            files[filename] = content
+            saved_files.append(filename)
+            summaries.append(f"- [{topic}] {filename}: {item['summary']}...")
+
+    summary_text = f"""⚡ Parallel career searches completed for {len(topics)} topic(s).
+
+{chr(10).join(summaries)}
+
+Files: {', '.join(saved_files)}
+💡 Use read_file() to inspect details when needed."""
+
+    return Command(update={"files": files, "messages": [ToolMessage(summary_text, tool_call_id=tool_call_id)]})
+
+
+@tool(parse_docstring=True)
+def parallel_international_info(
+    aspects: list[str],
+    state: Annotated[DeepAgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    max_results: Annotated[int, InjectedToolArg] = 1,
+) -> Command:
+    """Search multiple international-student aspects in parallel (UNSW/Australia context).
+
+    Args:
+        aspects: List of aspects (e.g., ["visa requirements", "scholarships", "accommodation"]).
+        state: Injected agent state for file storage.
+        tool_call_id: Injected tool call identifier.
+        max_results: Max results per aspect (default 1).
+    """
+
+    def build_query(a: str) -> str:
+        return f"{a} international students visa requirements support UNSW"
+
+    async def _run_one(a: str):
+        q = build_query(a)
+        return a, await asyncio.to_thread(run_tavily_search, q, max_results, True)
+
+    async def _run_all(aspects_list: list[str]):
+        tasks = [asyncio.create_task(_run_one(a)) for a in aspects_list]
+        return await asyncio.gather(*tasks, return_exceptions=False)
+
+    results = asyncio.run(_run_all(aspects)) if aspects else []
+
+    files = state.get("files", {})
+    saved_files: list[str] = []
+    summaries: list[str] = []
+
+    for aspect, raw in results:
+        processed = process_search_results(raw)
+        for item in processed:
+            filename = item['filename']
+            content = f"""# International Info Result: {item['title']}
+
+**Aspect:** {aspect}
+**Query:** {build_query(aspect)}
+**Date:** {get_today_str()}
+
+## Summary
+{item['summary']}
+
+## Raw Content
+{item['raw_content'] if item['raw_content'] else 'No raw content available'}
+"""
+            files[filename] = content
+            saved_files.append(filename)
+            summaries.append(f"- [{aspect}] {filename}: {item['summary']}...")
+
+    summary_text = f"""⚡ Parallel international info searches completed for {len(aspects)} aspect(s).
+
+{chr(10).join(summaries)}
+
+Files: {', '.join(saved_files)}
+💡 Use read_file() to inspect details when needed."""
+
+    return Command(update={"files": files, "messages": [ToolMessage(summary_text, tool_call_id=tool_call_id)]})
+
+
+@tool(parse_docstring=True)
+def parallel_course_details(
+    course_codes: list[str],
+    base_query: str,
+    state: Annotated[DeepAgentState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    max_results: Annotated[int, InjectedToolArg] = 1,
+) -> Command:
+    """Fetch multiple course details in parallel using the same underlying search flow.
+
+    Args:
+        course_codes: List of course codes (e.g., ["COMP9020","COMP9021"]).
+        base_query: A short query template to combine with each code (e.g., "course details UNSW").
+        state: Injected agent state for file storage.
+        tool_call_id: Injected tool call identifier.
+        max_results: Max results per course (default 1).
+
+    Returns:
+        Command that saves per-course findings to files and returns a compact summary.
+    """
+
+    async def _run_one(code: str):
+        q = f"{code} {base_query}"
+        return code, await asyncio.to_thread(
+            run_tavily_search,
+            q,
+            max_results,
+            True,
+        )
+
+    async def _run_all(codes: list[str]):
+        tasks = [asyncio.create_task(_run_one(c)) for c in codes]
+        return await asyncio.gather(*tasks, return_exceptions=False)
+
+    results = asyncio.run(_run_all(course_codes)) if course_codes else []
+
+    files = state.get("files", {})
+    saved_files_all: list[str] = []
+    summaries_all: list[str] = []
+
+    for code, raw_results in results:
+        processed = process_search_results(raw_results)
+        for item in processed:
+            filename = item['filename']
+            file_content = f"""# Search Result: {item['title']}
+
+**Course Code:** {code}
+**Query:** {code} {base_query}
+**Date:** {get_today_str()}
+
+## Summary
+{item['summary']}
+
+## Raw Content
+{item['raw_content'] if item['raw_content'] else 'No raw content available'}
+"""
+            files[filename] = file_content
+            saved_files_all.append(filename)
+            summaries_all.append(f"- [{code}] {filename}: {item['summary']}...")
+
+    summary_text = f"""⚡ Parallel course details fetched for {len(course_codes)} course(s).
+
+{chr(10).join(summaries_all)}
+
+Files: {', '.join(saved_files_all)}
+💡 Use read_file() to inspect details when needed."""
+
+    return Command(
+        update={
+            "files": files,
+            "messages": [
+                ToolMessage(summary_text, tool_call_id=tool_call_id)
+            ],
+        }
+    )
+
 @tool(parse_docstring=True)
 def think_tool(reflection: str) -> str:
     """Tool for strategic reflection on research progress and decision-making.
@@ -245,6 +593,7 @@ def think_tool(reflection: str) -> str:
         reflection: Your detailed reflection on research progress, findings, gaps, and next steps
 
     Returns:
-        Confirmation that reflection was recorded for decision-making
+        Confirmation that reflection was recorded for decision-making. If parallel is suitable, add a note to the reflection and 
+        use the parallel_tavily_search tool.
     """
     return f"Reflection recorded: {reflection}"
