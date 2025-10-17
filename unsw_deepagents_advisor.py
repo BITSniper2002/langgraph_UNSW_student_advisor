@@ -26,7 +26,7 @@ from src.prompts import international_advisor_subagent_prompt,course_planner_sub
 from src.state import DeepAgentState
 from src.tavilys import tavily_search,think_tool
 from src.task_tool import _create_task_tool
-from src.todo_tools import write_todos, read_todos
+from src.todo_tools import write_todos, read_todos, classify_task_complexity
 from src.file_tools import ls, read_file, write_file
 from src.utils import format_messages
 # 导入deep-agents
@@ -103,19 +103,20 @@ def create_unsw_deep_agent():
         international_advisor_subagent
     ]
     
-    sub_agent_tools = [search_unsw_programs, search_course_details, search_career_opportunities, search_international_student_info,think_tool]
+    sub_agent_tools = [search_unsw_programs, search_course_details, search_career_opportunities, search_international_student_info, think_tool]
     # 创建任务工具
     task_tool = _create_task_tool(
         sub_agent_tools, subagents, llm, DeepAgentState
     )
     
-    # 定义基础工具
+    # 定义基础工具（使用增强版工具）
     basic_tools = [
         search_unsw_programs,
         search_course_details, 
         search_career_opportunities,
         search_international_student_info,
         think_tool,
+        classify_task_complexity,
         write_todos,
         read_todos,
         ls,
@@ -188,11 +189,16 @@ def main():
                 print("👋 再见！")
                 break
             
+
+            
             if not user_input:
                 continue
             
             try:
                 print("\n🧠 Deep-Agents分析中...")
+                
+                # 查询预处理提示（使用 classify_task_complexity 工具由代理自行判定）
+                print("🎯 将调用复杂度判断工具以确定TODO复杂度和工具预算…")
                 
                 # 调用深度智能体
                 result = advisor.invoke(
