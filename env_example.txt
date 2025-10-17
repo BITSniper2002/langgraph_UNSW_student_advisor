@@ -1,0 +1,12 @@
+# API Keys for UNSW Course Advisor
+# Option 1: OpenAI (需要付费)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Option 2: 阿里云通义千问 (免费额度)
+DASHSCOPE_API_KEY=your_openai_api_key_here
+
+# Tavily Search API (需要注册)
+TAVILY_API_KEY=your_openai_api_key_here
+
+# 选择使用的模型: "openai" 或 "dashscope"
+LLM_PROVIDER=dashscope
